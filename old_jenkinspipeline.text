@@ -1,0 +1,64 @@
+pipeline {
+    agent { label 'vinod' }
+
+    environment {
+        DOCKER_IMAGE = 'fastapi_test:latest'
+        DOCKER_TAGGED_IMAGE = 'dippdatel/fastapi-jenkins:latest'
+    }
+
+    stages {
+        stage('Code') {
+            steps {
+                echo 'Cloning the code from GitHub repo...'
+                git url: 'https://github.com/dipdaiict/jenkins-cicd-learning.git', branch: 'main'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo 'Building Docker Image...'
+                sh "docker build -t ${DOCKER_IMAGE} ."
+                echo 'Build Successful.'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo 'Running Docker Container for Testing...'
+                sh '''
+                    docker run -d -p 8000:8000 --name fastapi_test_container fastapi_test:latest
+                    sleep 5  # Wait for the app to fully start
+                    curl -f http://localhost:8000/health
+                '''
+                echo 'Health check passed!'
+            }
+            post {
+                always {
+                    echo 'Cleaning up...'
+                    sh 'docker stop fastapi_test_container || true'
+                    sh 'docker rm fastapi_test_container || true'
+                }
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                echo 'Pushing Image to Docker Hub...'
+                withCredentials([usernamePassword(credentialsId: 'DockerHubCreds', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_PASS')]) {
+                    sh '''
+                        echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USER" --password-stdin
+                        docker tag ${DOCKER_IMAGE} ${DOCKER_TAGGED_IMAGE}
+                        docker push ${DOCKER_TAGGED_IMAGE}
+                    '''
+                }
+                echo 'Successfully pushed image to Docker Hub.'
+            }
+        }
+
+        stage('Success') {
+            steps {
+                echo 'Pipeline finished successfully.'
+            }
+        }
+    }
+}
